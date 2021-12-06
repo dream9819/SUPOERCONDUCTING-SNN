@@ -4,8 +4,6 @@ Created on Mon Nov 22 19:00 2021
 
 @author: Lin Ranxi & Dai Benzhe
 """
-
-from scipy.io import wavfile  # 原音无损
 import numpy as np
 import librosa.display
 import librosa as lib
@@ -15,33 +13,23 @@ import math
 
 data, sample_rate = librosa.load('test.wav')
 print("长度 = {0} 秒".format(len(data) / sample_rate))
-# plt.figure(figsize=(14, 5))
-# librosa.display.waveplot(data11, sample_rate)
-# plt.show()
-a = np.array(data)
-
-
-# librosa.display.specshow(a,  x_axis=None, y_axis=None)
-
-# np.savetxt('data11.txt',data11, delimiter=',')
 
 # Sigma-Delta ADC 时域编码，N为编码长度，Vt为编码阈值
+# a为经过均匀池化或最大值池化的一维向量.
 def sigma_delta(N, Vt, a):
-    l = np.zeros(a.shape[0] * N)
-    # print(a.shape,type(a))
-    d = np.zeros((N, a.shape[0]))
+    d = np.zeros((a.shape[0], 1))
     feedback = 0
     integrator = 0
-    i = 0
-    # ts = (len(data11) / sample_rate) / sample_rate  # 采样时间间隔
     q = len([x for x in list(a) if x > 0])  #
     e = len([x for x in list(a) if x < 0])  #
     for t in range(a.shape[0]):
+        i = 0
         for k in range(N):
-            aq = (a[t] - feedback) * 1 / N + integrator  #
+            aq = a[t] - feedback + integrator  #
             # 量化编码
             if aq > Vt:
                 aq_q = 1
+                i += 1
             else:
                 aq_q = 0
             if aq_q == 1:
@@ -52,9 +40,8 @@ def sigma_delta(N, Vt, a):
                 # aqq = -a[np.argmax(a)]
             feedback = aqq
             integrator = aq
-            # l[i + k] = aq_q
-            d[k][t] = aq_q
-        # i = i + N
+        d[t] = i
+        # 输出的d为输入层神经元的输入，每个神经元接收到的为编码为1的数目的总数。
     return d
 
 
@@ -69,7 +56,8 @@ class Feature_Extraction:
         self.fmin = fmin
         self.bins = bins_per_octave
 
-    # 常数Q变换,librosa.cqt函数中的Q计算公式为：Q = float(filter_scale) / (2 ** (bins_per_octave) - 1)
+    # 常数Q变换,librosa.cqt函数中的Q计算公式为：Q = float(filter_scale) / (2 ** (bins_per_octave) - 1)，可在librosa.cqt_frequencies代码中找到
+    # hop_length=512可以理解为间隔512个采样点采一个值，
     def cqt(self, y, sample_rate):
         return lib.cqt(y, sr=sample_rate, hop_length=512, n_bins=self.n_bins, fmin=self.fmin,
                        bins_per_octave=self.bins)
@@ -109,7 +97,6 @@ class Spiking_Neural_Network:
         theta_b1 = np.zeros(self.input_num1, 1) + self.theta_b0
         theta_b2 = np.zeros(self.input_num2, 1) + self.theta_b0
         self.theta_b = np.array(theta_b0, theta_b1, theta_b2) # 偏置矩阵
-        pass
 
     # 定义我们的超导LIF神经元，输出发出脉冲的数目。
     # time_window为脉冲发出时间窗口，超过此窗口，将会断掉偏置电流，致使脉冲频率近乎为0。
@@ -141,27 +128,28 @@ class Spiking_Neural_Network:
         if s > N:
             return N, f # N添加到self.n矩阵中，f添加到o矩阵中
         else:
+            f = s / self.time_window
             return s, f
 
     # 使用改进的SFDP准则,A为常数，t判断是那一层的突触，若为0，为输入层与隐藏层之间的突触，若为1，则为隐藏层与输出层之间的突触。
-    # i、j表示前一层第i个神经元与后一层第j个神经元的突触连接，o0、o1、o2表示各层的脉冲发出密度，内部元素为f, n0、n1、n2、为各层发出脉冲数目,内部元素为N
+    # i、j表示前一层第i个神经元与后一层第j个神经元的突触连接。
+    # 若t == 0，n就是输入层的脉冲输出向量n0，否则就是隐藏层的脉冲输出向量n1。
 
-    def sfdp(self, A, t, o0, o1, o2, n0, n1):
+    def sfdp(self, A, t):
 
-        sfdp_w01 = np.zeros(self.input_num0, self.input_num1)
-        sfdp_w12 = np.zeros(self.input_num1, self.input_num2)
+        sfdp_w01, sfdp_w12 = np.zeros(self.input_num0, self.input_num1), np.zeros(self.input_num1, self.input_num2)
 
         # 输入层与隐藏层之间的突触
         if t == 0:
             for i in range(self.input_num0):
                 for j in range(self.input_num1):
-                    f1 = np.sum(np.dot(self.w01[:, j].T, o0))  #
-                    lamda_p = np.sum(n0) * o0[i]
-                    if o0[i] > o1[j]:
+                    f1 = np.sum(np.dot(self.w01[:, j].T, self.o[0]))  #
+                    lamda_p = np.sum(self.n[0]) * self.o[0]
+                    if self.o[0][i] > self.o[1][j]:
                         sfdp_w01[i, j] = A * math.exp(-lamda_p / f1)
-                    elif o0[i] == o1[j]:
+                    elif self.o[0][i] == self.o[1][j]:
                         sfdp_w01[i, j] = 0
-                    elif o0[i] < o1[j]:
+                    elif self.o[0][i] < self.o[1][j]:
                         sfdp_w01[i, j] = -A * math.exp(-lamda_p / f1)
             return sfdp_w01
 
@@ -169,52 +157,50 @@ class Spiking_Neural_Network:
         elif t == 1:
             for i in range(self.input_num1):
                 for j in range(self.input_num2):
-                    f1 = np.sum(np.dot(self.w12[:, j].T, o1))  #
-                    lamda_p = np.sum(n1) * o1[i]
-                    if o1[i] > o2[j]:
+                    f1 = np.sum(np.dot(self.w12[:, j].T, self.o[1]))  #
+                    lamda_p = np.sum(self.n[1]) * self.o[1]
+                    if self.o[1][i] > self.o[2][j]:
                         sfdp_w12[i, j] = A * math.exp(-lamda_p / f1)
-                    elif o1[i] == o2[j]:
+                    elif self.o[1][i] == self.o[2][j]:
                         sfdp_w12[i, j] = 0
-                    elif o1[i] < o2[j]:
+                    elif self.o[1][i] < self.o[2][j]:
                         sfdp_w12[i, j] = -A * math.exp(-lamda_p / f1)
             return sfdp_w12
 
     # 采用MSE作为误差公式,n0为第一层的输出脉冲，n1为第二层的输出脉冲，ex为各神经元通过标签获得的期望，o2为最后一层的输出，二者实质都是输出的脉冲密度
-    def backward_w(self, n1, n0, ex, o2):
+    def backward_w(self, ex):
 
         delta_w12 = np.zeros(self.input_num1, self.input_num2)
         for i in range(self.input_num1):
             for j in range(self.input_num2):
-                delta_w12[i, j] = -(n1[i] * self.fai0 * (ex[j] - o2)) / self.x
-        delta_w01 = np.zeros(self.input_num0, self.input_num1)
+                delta_w12[i, j] = -(self.n[1][i] * self.fai0 * (ex[j] - self.o[2][j])) / self.x
 
+        delta_w01 = np.zeros(self.input_num0, self.input_num1)
         for i in range(self.input_num0):
             for j in range(self.input_num1):
                 for k in range(self.input_num1):
-                    delta_w01[i, j] += -(n0[i] * self.fai0 * self.w12[j, k] * (ex[k] - o2[k])) / self.x ** 2
+                    delta_w01[i, j] += -(self.n[0][i] * self.fai0 * self.w12[j, k] * (ex[k] - self.o[2][j])) / self.x ** 2
         return delta_w12, delta_w01
 
     # 计算偏置的改变，n0、n1、n2为输出脉冲数目，o2为脉冲密度，ex为各神经元的目标输出
-    def backward_b(self, t, n0, n1, n2, ex, o2):
+    def backward_b(self, t, ex):
 
-        delta_theta_b0 = np.zeros(self.input_num0, 1)
-        delta_theta_b1 = np.zeros(self.input_num1, 1)
-        delta_theta_b2 = np.zeros(self.input_num2, 1)
+        delta_theta_b0, delta_theta_b1, delta_theta_b2 = np.zeros(self.input_num0, 1), np.zeros(self.input_num1, 1), np.zeros(self.input_num2, 1)
 
         if t == 2:
             for i in range(self.input_num2):
-                delta_theta_b2[i] = -(ex[i] - o2[i]) * n2[i] / self.x
+                delta_theta_b2[i] = -(ex[i] - self.o[2][i]) * self.n[2][i] / self.x
             return delta_theta_b2
 
         elif t == 1:
             for i in range(self.input_num1):
                 for j in range(self.input_num2):
-                    delta_theta_b1[i] += -(n1[i] * self.w12[i, j]) * (ex[j] - o2[j]) / self.x ** 2
+                    delta_theta_b1[i] += -(self.n[1][i] * self.w12[i, j]) * (ex[j] - self.o[2][j]) / self.x ** 2
             return delta_theta_b1
 
         elif t == 0:
             for i in range(self.input_num0):
                 for k in range(self.input_num2):
                     for j in range(self.input_num1):
-                        delta_theta_b0[i] += -(self.w12[j, k] * self.w01[i, j] * n0[i] * (ex[k] - n2[k])) / self.x ** 3
+                        delta_theta_b0[i] += -(self.w12[j, k] * self.w01[i, j] * self.n[0][i] * (ex[k] - self.o[2][k])) / self.x ** 3
             return delta_theta_b0
