@@ -1,0 +1,220 @@
+# -*- coding: utf-8 -*-
+"""
+Created on Mon Nov 22 19:00 2021
+
+@author: Lin Ranxi & Dai Benzhe
+"""
+
+from scipy.io import wavfile  # 原音无损
+import numpy as np
+import librosa.display
+import librosa as lib
+import matplotlib.pyplot as plt
+import torch
+import math
+
+data, sample_rate = librosa.load('test.wav')
+print("长度 = {0} 秒".format(len(data) / sample_rate))
+# plt.figure(figsize=(14, 5))
+# librosa.display.waveplot(data11, sample_rate)
+# plt.show()
+a = np.array(data)
+
+
+# librosa.display.specshow(a,  x_axis=None, y_axis=None)
+
+# np.savetxt('data11.txt',data11, delimiter=',')
+
+# Sigma-Delta ADC 时域编码，N为编码长度，Vt为编码阈值
+def sigma_delta(N, Vt, a):
+    l = np.zeros(a.shape[0] * N)
+    # print(a.shape,type(a))
+    d = np.zeros((N, a.shape[0]))
+    feedback = 0
+    integrator = 0
+    i = 0
+    # ts = (len(data11) / sample_rate) / sample_rate  # 采样时间间隔
+    q = len([x for x in list(a) if x > 0])  #
+    e = len([x for x in list(a) if x < 0])  #
+    for t in range(a.shape[0]):
+        for k in range(N):
+            aq = (a[t] - feedback) * 1 / N + integrator  #
+            # 量化编码
+            if aq > Vt:
+                aq_q = 1
+            else:
+                aq_q = 0
+            if aq_q == 1:
+                aqq = np.sum(np.maximum(a, 0)) / q  # 语音信号正值平均值
+                # aqq = a[np.argmax(a)]#取输入最大值为量化解码值
+            else:
+                aqq = np.sum(np.minimum(a, 0)) / e  # 语音信号负值平均值
+                # aqq = -a[np.argmax(a)]
+            feedback = aqq
+            integrator = aq
+            # l[i + k] = aq_q
+            d[k][t] = aq_q
+        # i = i + N
+    return d
+
+
+# print((np.sum(np.maximum(a,0)) + np.sum(np.minimum(a,0))) / sample_rate) # 输入数据平均值
+# E = SDM_time_Domain(1,0.3)
+# np.savetxt('E[0].txt',E[0], delimiter=',')
+# plt.plot(range(len(E[0])), E[0], 'g')
+# plt.show()
+class Feature_Extraction:
+    def __init__(self, fmin, n_bins, bins_per_octave):
+        self.n_bins = n_bins
+        self.fmin = fmin
+        self.bins = bins_per_octave
+
+    # 常数Q变换,librosa.cqt函数中的Q计算公式为：Q = float(filter_scale) / (2 ** (bins_per_octave) - 1)
+    def cqt(self, y, sample_rate):
+        return lib.cqt(y, sr=sample_rate, hop_length=512, n_bins=self.n_bins, fmin=self.fmin,
+                       bins_per_octave=self.bins)
+
+    # 各频带中心频率
+    def cqt_F(self):
+        return lib.cqt_frequencies(n_bins=self.n_bins, fmin=self.fmin, bins_per_octave=self.bins, tuning=0.0)
+
+    # 各随频率变换的窗口长度
+    def cqt_F_width(self, sample_rate):
+        return lib.filters.constant_q_lengths(sample_rate, fmin=self.fmin, n_bins=self.n_bins,
+                                              bins_per_octave=self.bins, window='hann', filter_scale=1, gamma=0)
+
+
+class Spiking_Neural_Network:
+    def __init__(self, input_num1, theta_t, theta_b0, input_num2, input_num0, time_window):
+        self.input_num0 = input_num0  # 输入层神经元数目
+        self.input_num1 = input_num1  # 隐藏层神经元数目
+        self.input_num2 = input_num2  # 输出层神经元数目，对于分类任务，数目为10
+        self.list = np.array([self.input_num0, self.input_num1, self.input_num2])
+        self.theta = theta_t  # 神经元阈值
+        self.theta_b0 = theta_b0  # 初始神经元偏置
+        self.time_window = time_window  # 神经元输出时间窗口
+        # self.fai0 = 2.068 * 10 ** (-15)  # 单磁通量子值为2.068𝑚𝑣 ×𝑝𝑠
+        self.fai0 = 1 # 由于计算过程中所有的输入输出都是磁通量子的倍数，因此将其设置为1方便计算以及避免单位换算
+        self.w0 = 1  # Sigma-delta ADC与第一层神经元之间的连接不设置权重
+        self.w01 = np.random.randn(self.input_num0, self.input_num1)  # 初始化输入层与隐藏层之间权重
+        self.w12 = np.random.randn(self.input_num1, self.input_num2)  # 初始化隐藏层与输出层之间权重
+        n0 = np.zeros((self.input_num0, 1)) # 输入层的输出脉冲数目
+        n1 = np.zeros((self.input_num1, 1)) # 隐藏层的输出脉冲数目
+        n2 = np.zeros((self.input_num2, 1)) # 输出层的输出脉冲数目
+        self.n = np.array(n0, n1, n2) # 本脉冲神经网络的脉冲输出数目情况
+        o0, o1, o2 = np.zeros((self.input_num0, 1)), np.zeros((self.input_num1, 1)), np.zeros((self.input_num2, 1))
+        self.o = np.array(o0, o1, o2) # 本神经网络的脉冲发放频率矩阵
+        self.x = self.theta / self.fai0  # 阈值与磁通量子的比值a
+        theta_b0 = np.zeros(self.input_num0, 1) + self.theta_b0
+        theta_b1 = np.zeros(self.input_num1, 1) + self.theta_b0
+        theta_b2 = np.zeros(self.input_num2, 1) + self.theta_b0
+        self.theta_b = np.array(theta_b0, theta_b1, theta_b2) # 偏置矩阵
+        pass
+
+    # 定义我们的超导LIF神经元，输出发出脉冲的数目。
+    # time_window为脉冲发出时间窗口，超过此窗口，将会断掉偏置电流，致使脉冲频率近乎为0。
+    # k为频率因子，令frequency = k * input，为了简化模型，我们假设该因子是固定不变的，不随着偏置改变而改变。
+    # i,j 代表第i层第j个神经元，n表示前一层的脉冲输出向量
+    # 设置超导LIF神经元内约瑟夫森结临界电流为300微安，偏置为150微安，每次脉冲输入电流为50微安，即对于神经元而言，一个磁通量子对应电流50微安，此时a = 6
+
+    def lif_Relu(self, i, j, n):
+        # fp = np.sum(n) / self.time_window
+        input_all = 0
+        # 输入层的输入来自ADC的输出，这过程没有权重
+        if i == 0:
+            input_all = n[j] * self.fai0
+        # 隐藏层的输入来自输入层的输出
+        elif i == 1:
+            for i in range(self.input_num0):
+                input_all += self.w01[i][j] * n[j] * self.fai0
+        # 输出层的输入来自隐藏层的输出
+        elif i == 2:
+            for i in range(self.input_num1):
+                input_all += self.w12[i][j] * n[j] * self.fai0
+        N = (input_all / (self.theta - self.theta_b[i][j]) // 1)
+        # 假设1000微安的输入对应发出脉冲间隔为2.6ns。
+        # 定义频率因子k
+        k = 2.6 / 1000  # 单位是ns/uA
+        f = input_all * k
+        interval = input_all / k  # 对于不同输入，输出间隔不同。
+        s = self.time_window // interval
+        if s > N:
+            return N, f # N添加到self.n矩阵中，f添加到o矩阵中
+        else:
+            return s, f
+
+    # 使用改进的SFDP准则,A为常数，t判断是那一层的突触，若为0，为输入层与隐藏层之间的突触，若为1，则为隐藏层与输出层之间的突触。
+    # i、j表示前一层第i个神经元与后一层第j个神经元的突触连接，o0、o1、o2表示各层的脉冲发出密度，内部元素为f, n0、n1、n2、为各层发出脉冲数目,内部元素为N
+
+    def sfdp(self, A, t, o0, o1, o2, n0, n1):
+
+        sfdp_w01 = np.zeros(self.input_num0, self.input_num1)
+        sfdp_w12 = np.zeros(self.input_num1, self.input_num2)
+
+        # 输入层与隐藏层之间的突触
+        if t == 0:
+            for i in range(self.input_num0):
+                for j in range(self.input_num1):
+                    f1 = np.sum(np.dot(self.w01[:, j].T, o0))  #
+                    lamda_p = np.sum(n0) * o0[i]
+                    if o0[i] > o1[j]:
+                        sfdp_w01[i, j] = A * math.exp(-lamda_p / f1)
+                    elif o0[i] == o1[j]:
+                        sfdp_w01[i, j] = 0
+                    elif o0[i] < o1[j]:
+                        sfdp_w01[i, j] = -A * math.exp(-lamda_p / f1)
+            return sfdp_w01
+
+        # 隐藏层与输出层之间的突触
+        elif t == 1:
+            for i in range(self.input_num1):
+                for j in range(self.input_num2):
+                    f1 = np.sum(np.dot(self.w12[:, j].T, o1))  #
+                    lamda_p = np.sum(n1) * o1[i]
+                    if o1[i] > o2[j]:
+                        sfdp_w12[i, j] = A * math.exp(-lamda_p / f1)
+                    elif o1[i] == o2[j]:
+                        sfdp_w12[i, j] = 0
+                    elif o1[i] < o2[j]:
+                        sfdp_w12[i, j] = -A * math.exp(-lamda_p / f1)
+            return sfdp_w12
+
+    # 采用MSE作为误差公式,n0为第一层的输出脉冲，n1为第二层的输出脉冲，ex为各神经元通过标签获得的期望，o2为最后一层的输出，二者实质都是输出的脉冲密度
+    def backward_w(self, n1, n0, ex, o2):
+
+        delta_w12 = np.zeros(self.input_num1, self.input_num2)
+        for i in range(self.input_num1):
+            for j in range(self.input_num2):
+                delta_w12[i, j] = -(n1[i] * self.fai0 * (ex[j] - o2)) / self.x
+        delta_w01 = np.zeros(self.input_num0, self.input_num1)
+
+        for i in range(self.input_num0):
+            for j in range(self.input_num1):
+                for k in range(self.input_num1):
+                    delta_w01[i, j] += -(n0[i] * self.fai0 * self.w12[j, k] * (ex[k] - o2[k])) / self.x ** 2
+        return delta_w12, delta_w01
+
+    # 计算偏置的改变，n0、n1、n2为输出脉冲数目，o2为脉冲密度，ex为各神经元的目标输出
+    def backward_b(self, t, n0, n1, n2, ex, o2):
+
+        delta_theta_b0 = np.zeros(self.input_num0, 1)
+        delta_theta_b1 = np.zeros(self.input_num1, 1)
+        delta_theta_b2 = np.zeros(self.input_num2, 1)
+
+        if t == 2:
+            for i in range(self.input_num2):
+                delta_theta_b2[i] = -(ex[i] - o2[i]) * n2[i] / self.x
+            return delta_theta_b2
+
+        elif t == 1:
+            for i in range(self.input_num1):
+                for j in range(self.input_num2):
+                    delta_theta_b1[i] += -(n1[i] * self.w12[i, j]) * (ex[j] - o2[j]) / self.x ** 2
+            return delta_theta_b1
+
+        elif t == 0:
+            for i in range(self.input_num0):
+                for k in range(self.input_num2):
+                    for j in range(self.input_num1):
+                        delta_theta_b0[i] += -(self.w12[j, k] * self.w01[i, j] * n0[i] * (ex[k] - n2[k])) / self.x ** 3
+            return delta_theta_b0
