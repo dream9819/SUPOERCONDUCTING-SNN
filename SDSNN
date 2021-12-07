@@ -15,34 +15,64 @@ data, sample_rate = librosa.load('test.wav')
 print("长度 = {0} 秒".format(len(data) / sample_rate))
 
 # Sigma-Delta ADC 时域编码，N为编码长度，Vt为编码阈值
-# a为经过均匀池化或最大值池化的一维向量.
-def sigma_delta(N, Vt, a):
+# a为经过均匀池化或最大值池化的一维向量,其中的数值被变换到-1至1的范围内
+def sigma_delta(N, Vt, a, pooling):
     d = np.zeros((a.shape[0], 1))
-    feedback = 0
+    feedback = -1
     integrator = 0
     q = len([x for x in list(a) if x > 0])  #
     e = len([x for x in list(a) if x < 0])  #
-    for t in range(a.shape[0]):
-        i = 0
-        for k in range(N):
-            aq = a[t] - feedback + integrator  #
-            # 量化编码
-            if aq > Vt:
-                aq_q = 1
-                i += 1
-            else:
-                aq_q = 0
-            if aq_q == 1:
-                aqq = np.sum(np.maximum(a, 0)) / q  # 语音信号正值平均值
-                # aqq = a[np.argmax(a)]#取输入最大值为量化解码值
-            else:
-                aqq = np.sum(np.minimum(a, 0)) / e  # 语音信号负值平均值
-                # aqq = -a[np.argmax(a)]
-            feedback = aqq
-            integrator = aq
-        d[t] = i
+
+    # 使用池化
+    if pooling == 1:
+        for t in range(a.shape[0]):
+            i = 0
+            for k in range(N):
+                aq = a[t] - feedback + integrator  #
+                # 量化编码
+                if aq > Vt:
+                    aq_q = 1
+                    i += 1
+                else:
+                    aq_q = 0
+                if aq_q == 1:
+                    # aqq = np.sum(np.maximum(a, 0)) / q  # 语音信号正值平均值
+                    # aqq = a[np.argmax(a)]#取输入最大值为量化解码值
+                    aqq = 1
+                else:
+                    # aqq = np.sum(np.minimum(a, 0)) / e  # 语音信号负值平均值
+                    # aqq = -a[np.argmax(a)]
+                    aqq = -1
+                feedback = aqq
+                integrator = aq
+            d[t] = i
+    # 没有使用池化
+    elif pooling == 0:
+        for t in range(a.shape[0]):
+            i = 0
+            for s in a[0][t]:
+                for j in range(3):
+                    aq = s - feedback + integrator  #
+                    # 量化编码
+                    if aq > Vt:
+                        aq_q = 1
+                        i += 1
+                    else:
+                        aq_q = 0
+                    if aq_q == 1:
+                        # aqq = np.sum(np.maximum(a, 0)) / q  # 语音信号正值平均值
+                        # aqq = a[np.argmax(a)]#取输入最大值为量化解码值
+                        aqq = 1
+                    else:
+                        # aqq = np.sum(np.minimum(a, 0)) / e  # 语音信号负值平均值
+                        # aqq = -a[np.argmax(a)]
+                        aqq = -1
+                    feedback = aqq
+                    integrator = aq
+                d[t] = i
         # 输出的d为输入层神经元的输入，每个神经元接收到的为编码为1的数目的总数。
     return d
+
 
 
 # print((np.sum(np.maximum(a,0)) + np.sum(np.minimum(a,0))) / sample_rate) # 输入数据平均值
