@@ -155,11 +155,15 @@ class Spiking_Neural_Network:
         f = input_all * k
         interval = input_all / k  # 对于不同输入，输出间隔不同。
         s = self.time_window // interval
-        if s > N:
-            return N, f # N添加到self.n矩阵中，f添加到o矩阵中
-        else:
-            f = s / self.time_window
-            return s, f
+        if sel.time_window != 0:
+        
+            if s > N:
+                return N, f # N添加到self.n矩阵中，f添加到o矩阵中
+            else:
+                f = s / self.time_window
+                return s, f
+         else:
+            return N,f
 
     # 使用改进的SFDP准则,A为常数，t判断是那一层的突触，若为0，为输入层与隐藏层之间的突触，若为1，则为隐藏层与输出层之间的突触。
     # i、j表示前一层第i个神经元与后一层第j个神经元的突触连接。
