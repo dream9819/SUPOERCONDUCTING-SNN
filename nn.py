@@ -76,7 +76,7 @@ class NeuralNetwoek:
                 for onebias in layer.bias:
                     if onebias > 3.9:
                         onebias = 3.9
-                if epoch == 359:
+                if epoch == 100:
                     if i == 2:
                         with open('momentum_bias2.txt', 'w') as D:  # 打开test.txt   如果文件不存在，创建该文件。
                             np.savetxt(D, layer.bias, delimiter=',')

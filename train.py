@@ -9,9 +9,21 @@ DataPath='/home/dbz/Code/spsnn/RWCP-WAV'
 type2int ={'cymbals': 0, 'metal15': 1, 'bells5': 2, 'bottle1': 3, 'phone4': 4, 'ring': 5, 'whistle1': 6, 'buzzer': 7, 'kara': 8, 'horn': 9}
 int2type =  {0: 'cymbals', 1: 'metal15', 2: 'bells5', 3: 'bottle1', 4: 'phone4', 5: 'ring', 6: 'whistle1', 7: 'buzzer', 8: 'kara', 9: 'horn'}
 
-dataloader = BalanceDataLoad_(DataPath)
+def list_save(filename, list):
+    listfile=open (filename, mode ='w')
+    for line in list:
+        listfile.write(line)
+        listfile.write('\n')
+    listfile.close()
+
+
+dataloader = BalanceDataLoad_(DataPath,type2int=type2int,int2type=int2type)
 fea_ext = Feature_Extraction( )
 y_train, y_test,x_pre_train,x_pre_test = dataloader.dataloader()
+list_save('x_train',x_pre_train)
+y_train =np.array(y_train)
+y_test   = np.array(y_test)
+np.savetxt('y_train',y_train)
 x_test = fea_ext.featureextractor(x_pre_test)
 x_train = fea_ext.featureextractor(x_pre_train)
 for x in x_test:

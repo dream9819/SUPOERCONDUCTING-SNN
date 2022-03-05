@@ -4,20 +4,36 @@ Created on Mon Nov 22 19:00 2021
 
 @author: Lin Ranxi & Dai Benzhe
 """
+from fileinput import filename
+from importlib.resources import contents
+from re import M
 from dataload import NoiseLoader
 from feature_extraactor import Feature_Extraction
 from Layer import Layer 
 from nn import NeuralNetwoek
 import numpy as np
 
-DataPath='/home/dbz/Code/spsnn/RWCP-WAV'
+DataPath='/home/dbz/Code/spsnn/RWCP-WAV_-5db'
 
 type2int ={'cymbals': 0, 'metal15': 1, 'bells5': 2, 'bottle1': 3, 'phone4': 4, 'ring': 5, 'whistle1': 6, 'buzzer': 7, 'kara': 8, 'horn': 9}
 int2type =  {0: 'cymbals', 1: 'metal15', 2: 'bells5', 3: 'bottle1', 4: 'phone4', 5: 'ring', 6: 'whistle1', 7: 'buzzer', 8: 'kara', 9: 'horn'}
+def list_load(file_name,list_):
+   file_handle = open(file_name,mode='r')
+   contents = file_handle.readlines()
+   for msg in contents:
+      msg =msg.strip('\n')
+      list_ .append(msg)
+   file_handle.close()
 
+'''
 dataloader = NoiseLoader(DataPath,int2type= int2type ,type2int = type2int)
-fea_ext = Feature_Extraction( )
 y,x_pre = dataloader.dataloader()
+'''
+
+fea_ext = Feature_Extraction( )
+x_pre = []
+list_load('x_train',x_pre)
+y=np.loadtxt('y_train')
 x = fea_ext.featureextractor(x_pre)
 for x_i in x:
    x_i = x_i.reshape(x_i.shape[1],x_i.shape[0])
