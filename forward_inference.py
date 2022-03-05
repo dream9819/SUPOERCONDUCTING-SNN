@@ -9,17 +9,18 @@ from feature_extraactor import Feature_Extraction
 from Layer import Layer 
 from nn import NeuralNetwoek
 import numpy as np
-import os
-import sys
 
 DataPath='/home/dbz/Code/spsnn/RWCP-WAV'
 
-dataloader = NoiseLoader(DataPath)
+type2int ={'cymbals': 0, 'metal15': 1, 'bells5': 2, 'bottle1': 3, 'phone4': 4, 'ring': 5, 'whistle1': 6, 'buzzer': 7, 'kara': 8, 'horn': 9}
+int2type =  {0: 'cymbals', 1: 'metal15', 2: 'bells5', 3: 'bottle1', 4: 'phone4', 5: 'ring', 6: 'whistle1', 7: 'buzzer', 8: 'kara', 9: 'horn'}
+
+dataloader = NoiseLoader(DataPath,int2type= int2type ,type2int = type2int)
 fea_ext = Feature_Extraction( )
 y,x_pre = dataloader.dataloader()
 x = fea_ext.featureextractor(x_pre)
-for x in x:
-   x = x.reshape(x.shape[1],x.shape[0])
+for x_i in x:
+   x_i = x_i.reshape(x_i.shape[1],x_i.shape[0])
 
 D = open('./spsnn/parament/momentum_bias2.txt', 'r')
 bias2=np.loadtxt(D, delimiter=',')

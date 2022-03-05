@@ -166,11 +166,8 @@ class NeuralNetwoek:
                     #len( x_train )
                     mse = mse / 2
                     mses.append(mse)
-                    print('Epoch:#%s,MSW:'%( i),file=f,flush =True )
                     print('Epoch:#%s,MSW:'%( i),file=sys.stdout)
-                    print(mse,file=f,flush =True )
                     print(mse,file=sys.stdout)
-                    print("MSE: %.5f" % np.sum(mse),file=f,flush =True)
                     print("MSE: %.5f" % np.sum(mse), file=sys.stdout)
                     MSE.append(np.sum(mse))
                     test_accurary =  self.accuracy(x_test,y_test)
@@ -186,9 +183,7 @@ class NeuralNetwoek:
                     with open('MSE.txt', 'w') as G:
                         G.write(str(MSE))
                     print()
-                    print('TestAccuracy: %.2f'%test_accurary,file=f,flush =True )
                     print('TestAccuracy: %.2f'%test_accurary,file=sys.stdout)
-                    print('TrainAccuracy: %.2f'%train_accurary,file=f,flush =True )
                     print('TrainAccuracy: %.2f'%train_accurary,file=sys.stdout)
 
             """
